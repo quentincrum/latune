@@ -5,9 +5,17 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "platforms": ["ios", "android", "web"],
+    "assetBundlePatterns": ["**/*"],
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "name": "LaTune",
+      "shortName": "TuneConverter",
+      "themeColor": "#0E0F12",
+      "backgroundColor": "#0E0F12",
+      "display": "standalone",
+      "output": "static"
+    },
     "ios": {
       "supportsTablet": true
     },
