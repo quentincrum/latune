@@ -2,6 +2,9 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { theme } from './src/theme/theme';
 import { ConvertScreen } from './src/screens/ConvertScreen';
+import { registerServiceWorker } from './src/registerServiceWorker';
+
+registerServiceWorker();
 
 export default function App() {
   return (
