@@ -8,13 +8,14 @@
     "platforms": ["ios", "android", "web"],
     "assetBundlePatterns": ["**/*"],
     "web": {
+      "output": "single",
+      "bundler": "metro",
       "favicon": "./assets/favicon.png",
       "name": "LaTune",
       "shortName": "TuneConverter",
       "themeColor": "#0E0F12",
       "backgroundColor": "#0E0F12",
-      "display": "standalone",
-      "output": "static"
+      "display": "standalone"
     },
     "ios": {
       "supportsTablet": true
