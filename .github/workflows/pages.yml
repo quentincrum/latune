@@ -35,7 +35,7 @@ jobs:
         run: npm ci
 
       - name: Export web
-        run: npx expo export --platform web
+        run: npx expo export --platform web --clear
 
       - name: Add SPA 404 fallback
         run: cp dist/index.html dist/404.html

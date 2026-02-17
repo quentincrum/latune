@@ -7,6 +7,9 @@
     "userInterfaceStyle": "dark",
     "platforms": ["ios", "android", "web"],
     "assetBundlePatterns": ["**/*"],
+    "experiments": {
+      "baseUrl": "/latune"
+    },
     "web": {
       "output": "single",
       "bundler": "metro",
