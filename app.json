@@ -4,6 +4,7 @@
     "slug": "currency-converter-neumorphic",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon-512.png",
     "userInterfaceStyle": "dark",
     "platforms": ["ios", "android", "web"],
     "assetBundlePatterns": ["**/*"],
@@ -15,18 +16,24 @@
       "bundler": "metro",
       "favicon": "./assets/favicon.png",
       "name": "LaTune",
-      "shortName": "TuneConverter",
+      "shortName": "LaTune",
       "themeColor": "#0E0F12",
       "backgroundColor": "#0E0F12",
-      "display": "standalone"
+      "display": "standalone",
+      "icons": [
+        {
+          "src": "./assets/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        },
+        {
+          "src": "./assets/icon-512.png",
+          "sizes": "512x512",
+          "type": "image/png"
+        }
+      ]
     },
-    "ios": {
-      "supportsTablet": true
-    },
-    "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#0E0F12"
-      }
-    }
+    "ios": { "supportsTablet": true },
+    "android": { "adaptiveIcon": { "backgroundColor": "#0E0F12" } }
   }
 }
