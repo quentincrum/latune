@@ -37,6 +37,10 @@ jobs:
       - name: Export web
         run: npx expo export --platform web --clear
 
+      - name: Inject manifest link into index.html
+        run: |
+          node -e "const fs=require('fs'); const p='dist/index.html'; let h=fs.readFileSync(p,'utf8'); if(!h.includes('rel=\"manifest\"')){ h=h.replace('</head>','  <link rel=\"manifest\" href=\"/latune/manifest.json\" />\n</head>'); fs.writeFileSync(p,h); }"
+
       - name: Add SPA 404 fallback
         run: cp dist/index.html dist/404.html
 
