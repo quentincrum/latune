@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmountRow } from '../components/AmountRow';
 import { Keypad } from '../components/Keypad';
@@ -8,6 +8,12 @@ import { convertWithPair, DEFAULT_RATE_DKK_TO_EUR, fetchLatestRate } from '../se
 import { theme } from '../theme/theme';
 import { Currency } from '../types/currency';
 import { formatAmount, nowTimestamp } from '../utils/format';
+import {
+  evaluateExpression,
+  formatExpressionValue,
+  getLastNumberSegment,
+  isCalculatorOperator,
+} from '../utils/calc';
 import { CurrencyPickerModal } from './CurrencyPickerModal';
 
 const CURRENCIES: Currency[] = [
@@ -21,10 +27,25 @@ const CURRENCIES: Currency[] = [
 
 type PickerTarget = 'from' | 'to' | null;
 
+const MINUS = '−';
+
+const formatForDisplay = (value: number) => formatExpressionValue(value).replace('-', MINUS);
+
+const endsWithOperator = (value: string) => {
+  if (!value) {
+    return false;
+  }
+
+  const last = value[value.length - 1];
+  return isCalculatorOperator(last);
+};
+
 export const ConvertScreen = () => {
   const [fromCurrency, setFromCurrency] = useState('DKK');
   const [toCurrency, setToCurrency] = useState('EUR');
-  const [rawInput, setRawInput] = useState('0');
+  const [expression, setExpression] = useState('0');
+  const [lastValidValue, setLastValidValue] = useState(0);
+  const [calcError, setCalcError] = useState<string | null>(null);
   const [rateDKKToEUR, setRateDKKToEUR] = useState(DEFAULT_RATE_DKK_TO_EUR);
   const [lastUpdated, setLastUpdated] = useState(nowTimestamp());
   const [rateError, setRateError] = useState<string | null>(null);
@@ -60,15 +81,116 @@ export const ConvertScreen = () => {
     };
   }, []);
 
-  const inputAmount = useMemo(() => {
-    const parsed = Number(rawInput);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }, [rawInput]);
+  useEffect(() => {
+    const evaluated = evaluateExpression(expression);
+    if (evaluated === null) {
+      setCalcError('Invalid expression');
+      return;
+    }
+
+    setLastValidValue(evaluated);
+    setCalcError(null);
+  }, [expression]);
+
+  const appendToken = (token: string) => {
+    setExpression((current) => {
+      let next = current;
+
+      if (/^\d$/.test(token)) {
+        if (current === '0') {
+          next = token;
+        } else if (current === `${MINUS}0` && token !== '0') {
+          next = `${MINUS}${token}`;
+        } else {
+          next = `${current}${token}`;
+        }
+
+        return next;
+      }
+
+      if (token === '.') {
+        if (current === '0') {
+          next = '0.';
+          return next;
+        }
+
+        if (current === MINUS) {
+          next = `${MINUS}0.`;
+          return next;
+        }
+
+        if (endsWithOperator(current)) {
+          next = `${current}0.`;
+          return next;
+        }
+
+        const lastSegment = getLastNumberSegment(current);
+        if (lastSegment.includes('.')) {
+          return current;
+        }
+
+        next = `${current}.`;
+        return next;
+      }
+
+      if (isCalculatorOperator(token)) {
+        if (current === '0' && token === MINUS) {
+          next = MINUS;
+          return next;
+        }
+
+        if (current === MINUS) {
+          return current;
+        }
+
+        if (endsWithOperator(current)) {
+          const lastChar = current[current.length - 1];
+          if (token === MINUS && lastChar !== MINUS) {
+            next = `${current}${token}`;
+            return next;
+          }
+
+          next = `${current.slice(0, -1)}${token}`;
+          return next;
+        }
+
+        next = `${current}${token}`;
+      }
+
+      return next;
+    });
+  };
+
+  const handleBackspace = () => {
+    setExpression((current) => {
+      const next = current.length <= 1 ? '0' : current.slice(0, -1);
+      return next === MINUS || next === '' ? '0' : next;
+    });
+  };
+
+  const handleClear = () => {
+    setExpression('0');
+    setLastValidValue(0);
+    setCalcError(null);
+  };
+
+  const handleEquals = () => {
+    const evaluated = evaluateExpression(expression);
+    if (evaluated === null) {
+      setCalcError('Invalid expression');
+      return;
+    }
+
+    const displayValue = formatForDisplay(evaluated);
+    setExpression(displayValue);
+    setLastValidValue(evaluated);
+    setCalcError(null);
+  };
 
   const convertedAmount = useMemo(() => {
-    const value = convertWithPair(inputAmount, fromCurrency, toCurrency, rateDKKToEUR);
+    const value = convertWithPair(lastValidValue, fromCurrency, toCurrency, rateDKKToEUR);
     return formatAmount(value);
-  }, [fromCurrency, inputAmount, rateDKKToEUR, toCurrency]);
+  }, [fromCurrency, lastValidValue, rateDKKToEUR, toCurrency]);
 
   const rateText = useMemo(() => {
     if (fromCurrency === toCurrency) {
@@ -85,36 +207,6 @@ export const ConvertScreen = () => {
 
     return `1 ${fromCurrency} = ${rateDKKToEUR.toFixed(4)} ${toCurrency}`;
   }, [fromCurrency, rateDKKToEUR, toCurrency]);
-
-  const appendKey = (key: string) => {
-    setRawInput((current) => {
-      if (key === '.') {
-        if (current.includes('.')) {
-          return current;
-        }
-        return `${current}.`;
-      }
-
-      if (current === '0') {
-        return key;
-      }
-
-      return `${current}${key}`;
-    });
-  };
-
-  const handleBackspace = () => {
-    setRawInput((current) => {
-      if (current.length <= 1) {
-        return '0';
-      }
-      return current.slice(0, -1);
-    });
-  };
-
-  const handleClear = () => {
-    setRawInput('0');
-  };
 
   const openPicker = (target: Exclude<PickerTarget, null>) => {
     setPickerTarget(target);
@@ -140,61 +232,66 @@ export const ConvertScreen = () => {
     setToCurrency(fromCurrency);
   };
 
-  const confirmInput = () => {
-    setRawInput((current) => {
-      const numericValue = Number(current);
-      if (!Number.isFinite(numericValue)) {
-        return '0';
-      }
-      return String(numericValue);
-    });
-  };
-
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
-      <View style={styles.topBar}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Back" style={styles.circleBtn}>
-          <Text style={styles.circleText}>‹</Text>
-        </Pressable>
-        <Text style={styles.title}>Convert</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="More options" style={styles.circleBtn}>
-          <Text style={styles.circleText}>⋯</Text>
-        </Pressable>
-      </View>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: theme.spacing.md + insets.bottom }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.topBar}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Back" style={styles.circleBtn}>
+            <Text style={styles.circleText}>‹</Text>
+          </Pressable>
+          <Text style={styles.title}>Convert</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="More options" style={styles.circleBtn}>
+            <Text style={styles.circleText}>⋯</Text>
+          </Pressable>
+        </View>
 
-      <AmountRow
-        label="From"
-        currencyCode={fromCurrency}
-        amount={formatAmount(inputAmount)}
-        onCurrencyPress={() => openPicker('from')}
-        active
-      />
+        <AmountRow
+          label="From"
+          currencyCode={fromCurrency}
+          amount={formatAmount(lastValidValue)}
+          expression={expression}
+          calcError={calcError}
+          expanded
+          onCurrencyPress={() => openPicker('from')}
+          active
+        />
 
-      <View style={styles.swapWrap}>
-        <NeumorphicButton
-          primary
-          onPress={swapCurrencies}
-          accessibilityLabel="Swap currencies"
-          style={styles.swapBtn}
-        >
-          <Text style={styles.swapIcon}>⇅</Text>
-        </NeumorphicButton>
-      </View>
+        <View style={styles.swapWrap}>
+          <NeumorphicButton
+            primary
+            onPress={swapCurrencies}
+            accessibilityLabel="Swap currencies"
+            style={styles.swapBtn}
+          >
+            <Text style={styles.swapIcon}>⇅</Text>
+          </NeumorphicButton>
+        </View>
 
-      <AmountRow
-        label="To"
-        currencyCode={toCurrency}
-        amount={convertedAmount}
-        onCurrencyPress={() => openPicker('to')}
-      />
+        <AmountRow
+          label="To"
+          currencyCode={toCurrency}
+          amount={convertedAmount}
+          onCurrencyPress={() => openPicker('to')}
+        />
 
-      <View style={styles.rateWrap}>
-        <Text style={styles.rateText}>{rateText}</Text>
-        <Text style={styles.subtleText}>Updated: {lastUpdated}</Text>
-        {rateError ? <Text style={styles.errorText}>{rateError}</Text> : null}
-      </View>
+        <View style={styles.rateWrap}>
+          <Text style={styles.rateText}>{rateText}</Text>
+          <Text style={styles.subtleText}>Updated: {lastUpdated}</Text>
+          {rateError ? <Text style={styles.errorText}>{rateError}</Text> : null}
+        </View>
 
-      <Keypad onInput={appendKey} onBackspace={handleBackspace} onClear={handleClear} onConfirm={confirmInput} />
+        <View style={styles.keypadWrap}>
+          <Keypad
+            onInput={appendToken}
+            onBackspace={handleBackspace}
+            onClear={handleClear}
+            onEquals={handleEquals}
+          />
+        </View>
+      </ScrollView>
 
       <CurrencyPickerModal
         visible={pickerVisible}
@@ -212,12 +309,14 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     paddingHorizontal: theme.spacing.md,
-    paddingBottom: theme.spacing.md,
     backgroundColor: theme.colors.background,
+  },
+  content: {
+    flexGrow: 1,
   },
   topBar: {
     marginTop: 0,
-    marginBottom: theme.spacing.xl,
+    marginBottom: theme.spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -260,8 +359,8 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   rateWrap: {
-    marginTop: theme.spacing.sm,
-    marginBottom: theme.spacing.sm,
+    marginTop: theme.spacing.xs,
+    marginBottom: theme.spacing.xs,
     gap: 4,
   },
   rateText: {
@@ -276,5 +375,8 @@ const styles = StyleSheet.create({
   errorText: {
     color: theme.colors.accent,
     fontSize: 12,
+  },
+  keypadWrap: {
+    marginTop: theme.spacing.sm,
   },
 });

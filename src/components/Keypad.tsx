@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useMemo } from 'react';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import { NeumorphicButton } from './NeumorphicButton';
 import { theme } from '../theme/theme';
 
@@ -6,34 +7,58 @@ type KeypadProps = {
   onInput: (key: string) => void;
   onClear: () => void;
   onBackspace: () => void;
-  onConfirm: () => void;
+  onEquals: () => void;
 };
 
-const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0'];
+const ROWS = [
+  ['7', '8', '9', '÷'],
+  ['4', '5', '6', '×'],
+  ['1', '2', '3', '−'],
+  ['.', '0', '⌫', '+'],
+] as const;
 
-export const Keypad = ({ onInput, onClear, onBackspace, onConfirm }: KeypadProps) => {
+export const Keypad = ({ onInput, onClear, onBackspace, onEquals }: KeypadProps) => {
+  const { height } = useWindowDimensions();
+  const compact = height < 760;
+
+  const buttonStyles = useMemo(
+    () => [styles.key, compact ? styles.keyCompact : null],
+    [compact],
+  );
+
   return (
     <View style={styles.wrapper}>
-      <View style={styles.grid}>
-        {KEYS.map((key) => (
-          <NeumorphicButton
-            key={key}
-            label={key}
-            onPress={() => onInput(key)}
-            accessibilityLabel={`Input ${key}`}
-            style={styles.key}
-          />
-        ))}
+      {ROWS.map((row, rowIndex) => (
+        <View key={`row-${rowIndex}`} style={styles.row}>
+          {row.map((key) => {
+            const isBackspace = key === '⌫';
+            return (
+              <NeumorphicButton
+                key={key}
+                label={key}
+                onPress={() => (isBackspace ? onBackspace() : onInput(key))}
+                accessibilityLabel={isBackspace ? 'Backspace' : `Input ${key}`}
+                style={buttonStyles}
+              />
+            );
+          })}
+        </View>
+      ))}
+
+      <View style={styles.row}>
         <NeumorphicButton
-          label="⌫"
-          onPress={onBackspace}
-          accessibilityLabel="Backspace"
-          style={styles.key}
+          label="C"
+          onPress={onClear}
+          accessibilityLabel="Clear expression"
+          style={[styles.wideKey, compact ? styles.keyCompact : null]}
         />
-        <NeumorphicButton label="C" onPress={onClear} accessibilityLabel="Clear amount" style={styles.key} />
-        <NeumorphicButton onPress={onConfirm} primary accessibilityLabel="Confirm amount" style={styles.key}>
-          <Text style={styles.confirmIcon}>➜</Text>
-        </NeumorphicButton>
+        <NeumorphicButton
+          label="="
+          onPress={onEquals}
+          primary
+          accessibilityLabel="Evaluate expression"
+          style={[styles.wideKey, compact ? styles.keyCompact : null]}
+        />
       </View>
     </View>
   );
@@ -41,20 +66,22 @@ export const Keypad = ({ onInput, onClear, onBackspace, onConfirm }: KeypadProps
 
 const styles = StyleSheet.create({
   wrapper: {
-    marginTop: theme.spacing.lg,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    marginTop: theme.spacing.md,
     gap: theme.spacing.sm,
-    justifyContent: 'space-between',
+  },
+  row: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
   },
   key: {
-    width: '31%',
+    flex: 1,
+    minHeight: 58,
   },
-  confirmIcon: {
-    color: '#1A1A1A',
-    fontSize: 30,
-    fontWeight: '700',
+  keyCompact: {
+    minHeight: 52,
+  },
+  wideKey: {
+    flex: 1,
+    minHeight: 58,
   },
 });
