@@ -11,10 +11,11 @@ type KeypadProps = {
 };
 
 const ROWS = [
-  ['7', '8', '9', '÷'],
-  ['4', '5', '6', '×'],
-  ['1', '2', '3', '−'],
-  ['.', '0', '⌫', '+'],
+  ['AC', '( )', '%', '÷'],
+  ['7', '8', '9', '×'],
+  ['4', '5', '6', '−'],
+  ['1', '2', '3', '+'],
+  ['0', '.', '⌫', '='],
 ] as const;
 
 export const Keypad = ({ onInput, onClear, onBackspace, onEquals }: KeypadProps) => {
@@ -31,35 +32,55 @@ export const Keypad = ({ onInput, onClear, onBackspace, onEquals }: KeypadProps)
       {ROWS.map((row, rowIndex) => (
         <View key={`row-${rowIndex}`} style={styles.row}>
           {row.map((key) => {
-            const isBackspace = key === '⌫';
+            if (key === 'AC') {
+              return (
+                <NeumorphicButton
+                  key={key}
+                  label={key}
+                  onPress={onClear}
+                  accessibilityLabel="Clear expression"
+                  style={buttonStyles}
+                />
+              );
+            }
+
+            if (key === '⌫') {
+              return (
+                <NeumorphicButton
+                  key={key}
+                  label={key}
+                  onPress={onBackspace}
+                  accessibilityLabel="Backspace"
+                  style={buttonStyles}
+                />
+              );
+            }
+
+            if (key === '=') {
+              return (
+                <NeumorphicButton
+                  key={key}
+                  label={key}
+                  onPress={onEquals}
+                  primary
+                  accessibilityLabel="Evaluate expression"
+                  style={buttonStyles}
+                />
+              );
+            }
+
             return (
               <NeumorphicButton
                 key={key}
                 label={key}
-                onPress={() => (isBackspace ? onBackspace() : onInput(key))}
-                accessibilityLabel={isBackspace ? 'Backspace' : `Input ${key}`}
+                onPress={() => onInput(key)}
+                accessibilityLabel={`Input ${key}`}
                 style={buttonStyles}
               />
             );
           })}
         </View>
       ))}
-
-      <View style={styles.row}>
-        <NeumorphicButton
-          label="C"
-          onPress={onClear}
-          accessibilityLabel="Clear expression"
-          style={[styles.wideKey, compact ? styles.keyCompact : null]}
-        />
-        <NeumorphicButton
-          label="="
-          onPress={onEquals}
-          primary
-          accessibilityLabel="Evaluate expression"
-          style={[styles.wideKey, compact ? styles.keyCompact : null]}
-        />
-      </View>
     </View>
   );
 };
@@ -79,9 +100,5 @@ const styles = StyleSheet.create({
   },
   keyCompact: {
     minHeight: 52,
-  },
-  wideKey: {
-    flex: 1,
-    minHeight: 58,
   },
 });

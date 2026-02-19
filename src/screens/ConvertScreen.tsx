@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmountRow } from '../components/AmountRow';
 import { Keypad } from '../components/Keypad';
-import { NeumorphicButton } from '../components/NeumorphicButton';
 import { convertWithPair, DEFAULT_RATE_DKK_TO_EUR, fetchLatestRate } from '../services/rates';
 import { theme } from '../theme/theme';
 import { Currency } from '../types/currency';
 import { formatAmount, nowTimestamp } from '../utils/format';
 import {
-  evaluateExpression,
   formatExpressionValue,
   getLastNumberSegment,
+  isInProgressExpression,
   isCalculatorOperator,
+  tryEvaluate,
 } from '../utils/calc';
 import { CurrencyPickerModal } from './CurrencyPickerModal';
 
@@ -26,6 +26,7 @@ const CURRENCIES: Currency[] = [
 ];
 
 type PickerTarget = 'from' | 'to' | null;
+type ActiveCard = 'from' | 'to';
 
 const MINUS = '−';
 
@@ -36,15 +37,77 @@ const endsWithOperator = (value: string) => {
     return false;
   }
 
-  const last = value[value.length - 1];
-  return isCalculatorOperator(last);
+  return isCalculatorOperator(value[value.length - 1]);
+};
+
+const getNextExpression = (current: string, token: string) => {
+  let next = current;
+
+  if (/^\d$/.test(token)) {
+    if (current === '0') {
+      return token;
+    }
+
+    if (current === `${MINUS}0` && token !== '0') {
+      return `${MINUS}${token}`;
+    }
+
+    return `${current}${token}`;
+  }
+
+  if (token === '.') {
+    if (current === '0') {
+      return '0.';
+    }
+
+    if (current === MINUS) {
+      return `${MINUS}0.`;
+    }
+
+    if (endsWithOperator(current)) {
+      return `${current}0.`;
+    }
+
+    const lastSegment = getLastNumberSegment(current);
+    if (lastSegment.includes('.')) {
+      return current;
+    }
+
+    return `${current}.`;
+  }
+
+  if (isCalculatorOperator(token)) {
+    if (current === '0' && token === MINUS) {
+      return MINUS;
+    }
+
+    if (current === MINUS) {
+      return current;
+    }
+
+    if (endsWithOperator(current)) {
+      const lastChar = current[current.length - 1];
+      if (token === MINUS && lastChar !== MINUS) {
+        return `${current}${token}`;
+      }
+
+      return `${current.slice(0, -1)}${token}`;
+    }
+
+    return `${current}${token}`;
+  }
+
+  return next;
 };
 
 export const ConvertScreen = () => {
   const [fromCurrency, setFromCurrency] = useState('DKK');
   const [toCurrency, setToCurrency] = useState('EUR');
-  const [expression, setExpression] = useState('0');
-  const [lastValidValue, setLastValidValue] = useState(0);
+  const [activeCard, setActiveCard] = useState<ActiveCard>('from');
+  const [fromExpression, setFromExpression] = useState('0');
+  const [toExpression, setToExpression] = useState('0');
+  const [fromValidValue, setFromValidValue] = useState(0);
+  const [toValidValue, setToValidValue] = useState(0);
   const [calcError, setCalcError] = useState<string | null>(null);
   const [rateDKKToEUR, setRateDKKToEUR] = useState(DEFAULT_RATE_DKK_TO_EUR);
   const [lastUpdated, setLastUpdated] = useState(nowTimestamp());
@@ -81,116 +144,133 @@ export const ConvertScreen = () => {
     };
   }, []);
 
-  useEffect(() => {
-    const evaluated = evaluateExpression(expression);
-    if (evaluated === null) {
-      setCalcError('Invalid expression');
+  const softSyncValue = (target: ActiveCard, expression: string) => {
+    if (isInProgressExpression(expression)) {
       return;
     }
 
-    setLastValidValue(evaluated);
-    setCalcError(null);
-  }, [expression]);
+    const evaluation = tryEvaluate(expression);
+    if (!evaluation.ok) {
+      return;
+    }
+
+    if (target === 'from') {
+      setFromValidValue(evaluation.value);
+    } else {
+      setToValidValue(evaluation.value);
+    }
+  };
 
   const appendToken = (token: string) => {
-    setExpression((current) => {
-      let next = current;
+    if (token === '( )' || token === '%') {
+      return;
+    }
 
-      if (/^\d$/.test(token)) {
-        if (current === '0') {
-          next = token;
-        } else if (current === `${MINUS}0` && token !== '0') {
-          next = `${MINUS}${token}`;
-        } else {
-          next = `${current}${token}`;
-        }
+    setCalcError(null);
 
-        return next;
-      }
-
-      if (token === '.') {
-        if (current === '0') {
-          next = '0.';
-          return next;
-        }
-
-        if (current === MINUS) {
-          next = `${MINUS}0.`;
-          return next;
-        }
-
-        if (endsWithOperator(current)) {
-          next = `${current}0.`;
-          return next;
-        }
-
-        const lastSegment = getLastNumberSegment(current);
-        if (lastSegment.includes('.')) {
-          return current;
-        }
-
-        next = `${current}.`;
-        return next;
-      }
-
-      if (isCalculatorOperator(token)) {
-        if (current === '0' && token === MINUS) {
-          next = MINUS;
-          return next;
-        }
-
-        if (current === MINUS) {
-          return current;
-        }
-
-        if (endsWithOperator(current)) {
-          const lastChar = current[current.length - 1];
-          if (token === MINUS && lastChar !== MINUS) {
-            next = `${current}${token}`;
-            return next;
+    if (activeCard === 'from') {
+      setFromExpression((current) => {
+        if (isCalculatorOperator(token) && !isInProgressExpression(current)) {
+          const currentEvaluation = tryEvaluate(current);
+          if (!currentEvaluation.ok) {
+            setCalcError('Invalid expression');
+            return current;
           }
-
-          next = `${current.slice(0, -1)}${token}`;
-          return next;
         }
 
-        next = `${current}${token}`;
+        const next = getNextExpression(current, token);
+        softSyncValue('from', next);
+        return next;
+      });
+      return;
+    }
+
+    setToExpression((current) => {
+      if (isCalculatorOperator(token) && !isInProgressExpression(current)) {
+        const currentEvaluation = tryEvaluate(current);
+        if (!currentEvaluation.ok) {
+          setCalcError('Invalid expression');
+          return current;
+        }
       }
 
+      const next = getNextExpression(current, token);
+      softSyncValue('to', next);
       return next;
     });
   };
 
   const handleBackspace = () => {
-    setExpression((current) => {
+    setCalcError(null);
+
+    if (activeCard === 'from') {
+      setFromExpression((current) => {
+        const next = current.length <= 1 ? '0' : current.slice(0, -1);
+        const normalized = next === MINUS || next === '' ? '0' : next;
+        softSyncValue('from', normalized);
+        return normalized;
+      });
+      return;
+    }
+
+    setToExpression((current) => {
       const next = current.length <= 1 ? '0' : current.slice(0, -1);
-      return next === MINUS || next === '' ? '0' : next;
+      const normalized = next === MINUS || next === '' ? '0' : next;
+      softSyncValue('to', normalized);
+      return normalized;
     });
   };
 
   const handleClear = () => {
-    setExpression('0');
-    setLastValidValue(0);
+    if (activeCard === 'from') {
+      setFromExpression('0');
+      setFromValidValue(0);
+    } else {
+      setToExpression('0');
+      setToValidValue(0);
+    }
+
     setCalcError(null);
   };
 
   const handleEquals = () => {
-    const evaluated = evaluateExpression(expression);
-    if (evaluated === null) {
+    const expression = activeCard === 'from' ? fromExpression : toExpression;
+    const evaluation = tryEvaluate(expression);
+    if (!evaluation.ok) {
       setCalcError('Invalid expression');
       return;
     }
 
-    const displayValue = formatForDisplay(evaluated);
-    setExpression(displayValue);
-    setLastValidValue(evaluated);
+    const normalized = formatForDisplay(evaluation.value);
+
+    if (activeCard === 'from') {
+      setFromExpression(normalized);
+      setFromValidValue(evaluation.value);
+    } else {
+      setToExpression(normalized);
+      setToValidValue(evaluation.value);
+    }
+
     setCalcError(null);
   };
 
-  const convertedAmount = useMemo(() => {
-    const value = convertWithPair(lastValidValue, fromCurrency, toCurrency, rateDKKToEUR);
-    return formatAmount(value);
-  }, [fromCurrency, lastValidValue, rateDKKToEUR, toCurrency]);
+  const fromAmount = useMemo(() => {
+    if (activeCard === 'from') {
+      return formatAmount(fromValidValue);
+    }
+
+    const converted = convertWithPair(toValidValue, toCurrency, fromCurrency, rateDKKToEUR);
+    return formatAmount(converted);
+  }, [activeCard, fromCurrency, fromValidValue, rateDKKToEUR, toCurrency, toValidValue]);
+
+  const toAmount = useMemo(() => {
+    if (activeCard === 'to') {
+      return formatAmount(toValidValue);
+    }
+
+    const converted = convertWithPair(fromValidValue, fromCurrency, toCurrency, rateDKKToEUR);
+    return formatAmount(converted);
+  }, [activeCard, fromCurrency, fromValidValue, rateDKKToEUR, toCurrency, toValidValue]);
 
   const rateText = useMemo(() => {
     if (fromCurrency === toCurrency) {
@@ -227,54 +307,29 @@ export const ConvertScreen = () => {
     setPickerTarget(null);
   };
 
-  const swapCurrencies = () => {
-    setFromCurrency(toCurrency);
-    setToCurrency(fromCurrency);
-  };
-
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: theme.spacing.md + insets.bottom }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.topBar}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Back" style={styles.circleBtn}>
-            <Text style={styles.circleText}>‹</Text>
-          </Pressable>
-          <Text style={styles.title}>Convert</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="More options" style={styles.circleBtn}>
-            <Text style={styles.circleText}>⋯</Text>
-          </Pressable>
-        </View>
-
+      <View style={[styles.content, { paddingBottom: theme.spacing.md + insets.bottom }]}>
         <AmountRow
           label="From"
           currencyCode={fromCurrency}
-          amount={formatAmount(lastValidValue)}
-          expression={expression}
-          calcError={calcError}
-          expanded
+          amount={fromAmount}
+          expression={activeCard === 'from' ? fromExpression : undefined}
+          calcError={activeCard === 'from' ? calcError : null}
           onCurrencyPress={() => openPicker('from')}
-          active
+          onPress={() => setActiveCard('from')}
+          active={activeCard === 'from'}
         />
-
-        <View style={styles.swapWrap}>
-          <NeumorphicButton
-            primary
-            onPress={swapCurrencies}
-            accessibilityLabel="Swap currencies"
-            style={styles.swapBtn}
-          >
-            <Text style={styles.swapIcon}>⇅</Text>
-          </NeumorphicButton>
-        </View>
 
         <AmountRow
           label="To"
           currencyCode={toCurrency}
-          amount={convertedAmount}
+          amount={toAmount}
+          expression={activeCard === 'to' ? toExpression : undefined}
+          calcError={activeCard === 'to' ? calcError : null}
           onCurrencyPress={() => openPicker('to')}
+          onPress={() => setActiveCard('to')}
+          active={activeCard === 'to'}
         />
 
         <View style={styles.rateWrap}>
@@ -284,14 +339,9 @@ export const ConvertScreen = () => {
         </View>
 
         <View style={styles.keypadWrap}>
-          <Keypad
-            onInput={appendToken}
-            onBackspace={handleBackspace}
-            onClear={handleClear}
-            onEquals={handleEquals}
-          />
+          <Keypad onInput={appendToken} onBackspace={handleBackspace} onClear={handleClear} onEquals={handleEquals} />
         </View>
-      </ScrollView>
+      </View>
 
       <CurrencyPickerModal
         visible={pickerVisible}
@@ -312,51 +362,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.background,
   },
   content: {
-    flexGrow: 1,
-  },
-  topBar: {
-    marginTop: 0,
-    marginBottom: theme.spacing.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  title: {
-    color: theme.colors.textPrimary,
-    fontSize: 22,
-    fontWeight: '700',
-  },
-  circleBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  circleText: {
-    color: theme.colors.textSecondary,
-    fontSize: 20,
-    fontWeight: '700',
-    lineHeight: 22,
-  },
-  swapWrap: {
-    alignItems: 'center',
-    marginTop: -theme.spacing.xs,
-    marginBottom: theme.spacing.sm,
-    zIndex: 2,
-  },
-  swapBtn: {
-    width: 64,
-    minHeight: 64,
-    borderRadius: theme.radius.full,
-  },
-  swapIcon: {
-    color: '#1A1A1A',
-    fontSize: 26,
-    fontWeight: '800',
+    flex: 1,
   },
   rateWrap: {
     marginTop: theme.spacing.xs,

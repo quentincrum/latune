@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { CurrencyPill } from './CurrencyPill';
 import { NeumorphicCard } from './NeumorphicCard';
 import { theme } from '../theme/theme';
@@ -9,9 +9,9 @@ type AmountRowProps = {
   amount: string;
   expression?: string;
   calcError?: string | null;
-  expanded?: boolean;
   active?: boolean;
   onCurrencyPress: () => void;
+  onPress?: () => void;
 };
 
 export const AmountRow = ({
@@ -20,16 +20,16 @@ export const AmountRow = ({
   amount,
   expression,
   calcError,
-  expanded,
   active,
   onCurrencyPress,
+  onPress,
 }: AmountRowProps) => {
   const showCalculatorLayout = Boolean(expression);
 
-  return (
-    <NeumorphicCard active={active} style={[styles.card, expanded && styles.expandedCard]}>
+  const content = (
+    <NeumorphicCard active={active} style={styles.card}>
       <Text style={styles.label}>{label}</Text>
-      <View style={[styles.row, showCalculatorLayout && styles.rowTopAligned]}>
+      <View style={styles.row}>
         <CurrencyPill
           code={currencyCode}
           onPress={onCurrencyPress}
@@ -59,19 +59,34 @@ export const AmountRow = ({
       </View>
     </NeumorphicCard>
   );
+
+  if (!onPress) {
+    return content;
+  }
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Focus ${label.toLowerCase()} amount`}
+      style={styles.pressable}
+    >
+      {content}
+    </Pressable>
+  );
 };
 
 const styles = StyleSheet.create({
+  pressable: {
+    width: '100%',
+  },
   card: {
     marginBottom: theme.spacing.md,
-  },
-  expandedCard: {
-    minHeight: 138,
   },
   label: {
     color: theme.colors.textSecondary,
     fontSize: theme.text.small,
-    marginBottom: theme.spacing.sm,
+    marginBottom: theme.spacing.xs,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
@@ -80,9 +95,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: theme.spacing.md,
-  },
-  rowTopAligned: {
-    alignItems: 'flex-start',
   },
   amountWrap: {
     flex: 1,
@@ -98,9 +110,9 @@ const styles = StyleSheet.create({
   expression: {
     flex: 1,
     color: theme.colors.textSecondary,
-    fontSize: 15,
+    fontSize: 13,
     textAlign: 'right',
-    marginBottom: 6,
+    marginBottom: 2,
   },
   expressionError: {
     color: '#D88484',
@@ -109,12 +121,12 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     textAlign: 'right',
     color: theme.colors.textPrimary,
-    fontSize: theme.text.amount,
+    fontSize: 30,
     fontWeight: '700',
   },
   inlineError: {
-    marginTop: 2,
+    marginTop: 1,
     color: '#D88484',
-    fontSize: 11,
+    fontSize: 10,
   },
 });

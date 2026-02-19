@@ -25,6 +25,24 @@ const normalizeExpression = (expression: string) =>
     .replaceAll(UI_DIVIDE, '/')
     .replace(/\s+/g, '');
 
+export const isInProgressExpression = (expression: string) => {
+  const normalized = normalizeExpression(expression);
+  if (!normalized) {
+    return true;
+  }
+
+  const lastChar = normalized[normalized.length - 1];
+  if (isOperator(lastChar) || lastChar === '(' || lastChar === '.') {
+    return true;
+  }
+
+  if (normalized.includes('()') || normalized.endsWith('(')) {
+    return true;
+  }
+
+  return false;
+};
+
 const tokenize = (expression: string): Token[] | null => {
   if (!expression) {
     return null;
@@ -201,6 +219,19 @@ export const evaluateExpression = (expression: string): number | null => {
   }
 
   return evaluateRpn(rpn);
+};
+
+export const tryEvaluate = (expression: string): { ok: true; value: number } | { ok: false } => {
+  if (isInProgressExpression(expression)) {
+    return { ok: false };
+  }
+
+  const value = evaluateExpression(expression);
+  if (value === null) {
+    return { ok: false };
+  }
+
+  return { ok: true, value };
 };
 
 export const isCalculatorOperator = (token: string) =>
