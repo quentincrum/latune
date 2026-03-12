@@ -3,7 +3,13 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmountRow } from '../components/AmountRow';
 import { Keypad } from '../components/Keypad';
-import { convertWithPair, DEFAULT_RATE_DKK_TO_EUR, fetchLatestRate } from '../services/rates';
+import {
+  convertWithRates,
+  ExchangeRatesPayload,
+  fetchLatestRates,
+  getPairRate,
+  getSupportedCurrencies,
+} from '../services/rates';
 import { theme } from '../theme/theme';
 import { Currency } from '../types/currency';
 import { formatAmount, nowTimestamp } from '../utils/format';
@@ -16,14 +22,39 @@ import {
 } from '../utils/calc';
 import { CurrencyPickerModal } from './CurrencyPickerModal';
 
-const CURRENCIES: Currency[] = [
-  { code: 'DKK', symbol: 'kr', name: 'Danish Krone' },
-  { code: 'EUR', symbol: '€', name: 'Euro' },
-  { code: 'USD', symbol: '$', name: 'US Dollar' },
-  { code: 'GBP', symbol: '£', name: 'Pound Sterling' },
-  { code: 'SEK', symbol: 'kr', name: 'Swedish Krona' },
-  { code: 'NOK', symbol: 'kr', name: 'Norwegian Krone' },
-];
+const CURRENCY_METADATA: Record<string, Currency> = {
+  AUD: { code: 'AUD', symbol: 'A$', name: 'Australian Dollar' },
+  BGN: { code: 'BGN', symbol: 'лв', name: 'Bulgarian Lev' },
+  BRL: { code: 'BRL', symbol: 'R$', name: 'Brazilian Real' },
+  CAD: { code: 'CAD', symbol: 'C$', name: 'Canadian Dollar' },
+  CHF: { code: 'CHF', symbol: 'CHF', name: 'Swiss Franc' },
+  CNY: { code: 'CNY', symbol: '¥', name: 'Chinese Yuan' },
+  CZK: { code: 'CZK', symbol: 'Kč', name: 'Czech Koruna' },
+  DKK: { code: 'DKK', symbol: 'kr', name: 'Danish Krone' },
+  EUR: { code: 'EUR', symbol: '€', name: 'Euro' },
+  GBP: { code: 'GBP', symbol: '£', name: 'Pound Sterling' },
+  HKD: { code: 'HKD', symbol: 'HK$', name: 'Hong Kong Dollar' },
+  HUF: { code: 'HUF', symbol: 'Ft', name: 'Hungarian Forint' },
+  IDR: { code: 'IDR', symbol: 'Rp', name: 'Indonesian Rupiah' },
+  ILS: { code: 'ILS', symbol: '₪', name: 'Israeli New Shekel' },
+  INR: { code: 'INR', symbol: '₹', name: 'Indian Rupee' },
+  ISK: { code: 'ISK', symbol: 'kr', name: 'Icelandic Króna' },
+  JPY: { code: 'JPY', symbol: '¥', name: 'Japanese Yen' },
+  KRW: { code: 'KRW', symbol: '₩', name: 'South Korean Won' },
+  MXN: { code: 'MXN', symbol: '$', name: 'Mexican Peso' },
+  MYR: { code: 'MYR', symbol: 'RM', name: 'Malaysian Ringgit' },
+  NOK: { code: 'NOK', symbol: 'kr', name: 'Norwegian Krone' },
+  NZD: { code: 'NZD', symbol: 'NZ$', name: 'New Zealand Dollar' },
+  PHP: { code: 'PHP', symbol: '₱', name: 'Philippine Peso' },
+  PLN: { code: 'PLN', symbol: 'zł', name: 'Polish Zloty' },
+  RON: { code: 'RON', symbol: 'lei', name: 'Romanian Leu' },
+  SEK: { code: 'SEK', symbol: 'kr', name: 'Swedish Krona' },
+  SGD: { code: 'SGD', symbol: 'S$', name: 'Singapore Dollar' },
+  THB: { code: 'THB', symbol: '฿', name: 'Thai Baht' },
+  TRY: { code: 'TRY', symbol: '₺', name: 'Turkish Lira' },
+  USD: { code: 'USD', symbol: '$', name: 'US Dollar' },
+  ZAR: { code: 'ZAR', symbol: 'R', name: 'South African Rand' },
+};
 
 type PickerTarget = 'from' | 'to' | null;
 type ActiveCard = 'from' | 'to';
@@ -100,49 +131,110 @@ const getNextExpression = (current: string, token: string) => {
   return next;
 };
 
+const getFallbackSelection = (currencies: Currency[], preferredCode?: string) => {
+  if (currencies.length === 0) {
+    return '';
+  }
+
+  if (preferredCode && currencies.some((currency) => currency.code === preferredCode)) {
+    return preferredCode;
+  }
+
+  return currencies[0].code;
+};
+
+const getSecondarySelection = (currencies: Currency[], primaryCode: string) => {
+  const alternate = currencies.find((currency) => currency.code !== primaryCode);
+  return alternate ? alternate.code : primaryCode;
+};
+
 export const ConvertScreen = () => {
-  const [fromCurrency, setFromCurrency] = useState('DKK');
-  const [toCurrency, setToCurrency] = useState('EUR');
+  const [ratesPayload, setRatesPayload] = useState<ExchangeRatesPayload | null>(null);
+  const [fromCurrency, setFromCurrency] = useState('');
+  const [toCurrency, setToCurrency] = useState('');
   const [activeCard, setActiveCard] = useState<ActiveCard>('from');
   const [fromExpression, setFromExpression] = useState('0');
   const [toExpression, setToExpression] = useState('0');
   const [fromValidValue, setFromValidValue] = useState(0);
   const [toValidValue, setToValidValue] = useState(0);
   const [calcError, setCalcError] = useState<string | null>(null);
-  const [rateDKKToEUR, setRateDKKToEUR] = useState(DEFAULT_RATE_DKK_TO_EUR);
   const [lastUpdated, setLastUpdated] = useState(nowTimestamp());
   const [rateError, setRateError] = useState<string | null>(null);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<PickerTarget>(null);
-  const [pendingSelection, setPendingSelection] = useState('DKK');
+  const [pendingSelection, setPendingSelection] = useState('');
   const insets = useSafeAreaInsets();
+
+  const supportedCurrencies = useMemo(() => {
+    if (!ratesPayload) {
+      return [] as Currency[];
+    }
+
+    return getSupportedCurrencies(ratesPayload)
+      .map((code) => CURRENCY_METADATA[code])
+      .filter((currency): currency is Currency => Boolean(currency));
+  }, [ratesPayload]);
 
   useEffect(() => {
     let mounted = true;
 
-    const loadRate = async () => {
+    const loadRates = async () => {
       try {
-        const result = await fetchLatestRate();
+        const result = await fetchLatestRates();
         if (!mounted) {
           return;
         }
-        setRateDKKToEUR(result.rate);
+
+        setRatesPayload(result);
         setLastUpdated(new Date(result.updatedAt).toLocaleString());
         setRateError(null);
       } catch {
         if (!mounted) {
           return;
         }
-        setRateError('Offline: using last known rate');
+
+        setRatesPayload(null);
+        setRateError('Unable to load live exchange rates');
+        setPickerVisible(false);
+        setPickerTarget(null);
       }
     };
 
-    loadRate();
+    loadRates();
 
     return () => {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (supportedCurrencies.length === 0) {
+      setFromCurrency('');
+      setToCurrency('');
+      setPendingSelection('');
+      return;
+    }
+
+    const nextFrom = getFallbackSelection(
+      supportedCurrencies,
+      fromCurrency || (ratesPayload ? ratesPayload.base : undefined),
+    );
+    const nextTo = toCurrency && supportedCurrencies.some((currency) => currency.code === toCurrency)
+      ? toCurrency
+      : getSecondarySelection(supportedCurrencies, nextFrom);
+
+    if (fromCurrency !== nextFrom) {
+      setFromCurrency(nextFrom);
+    }
+
+    if (toCurrency !== nextTo) {
+      setToCurrency(nextTo);
+    }
+
+    if (!pendingSelection || !supportedCurrencies.some((currency) => currency.code === pendingSelection)) {
+      setPendingSelection(nextFrom);
+    }
+  }, [fromCurrency, pendingSelection, ratesPayload, supportedCurrencies, toCurrency]);
 
   const softSyncValue = (target: ActiveCard, expression: string) => {
     if (isInProgressExpression(expression)) {
@@ -259,42 +351,64 @@ export const ConvertScreen = () => {
       return formatAmount(fromValidValue);
     }
 
-    const converted = convertWithPair(toValidValue, toCurrency, fromCurrency, rateDKKToEUR);
+    if (!ratesPayload || !fromCurrency || !toCurrency) {
+      return formatAmount(0);
+    }
+
+    const converted = convertWithRates(toValidValue, toCurrency, fromCurrency, ratesPayload);
     return formatAmount(converted);
-  }, [activeCard, fromCurrency, fromValidValue, rateDKKToEUR, toCurrency, toValidValue]);
+  }, [activeCard, fromCurrency, fromValidValue, ratesPayload, toCurrency, toValidValue]);
 
   const toAmount = useMemo(() => {
     if (activeCard === 'to') {
       return formatAmount(toValidValue);
     }
 
-    const converted = convertWithPair(fromValidValue, fromCurrency, toCurrency, rateDKKToEUR);
+    if (!ratesPayload || !fromCurrency || !toCurrency) {
+      return formatAmount(0);
+    }
+
+    const converted = convertWithRates(fromValidValue, fromCurrency, toCurrency, ratesPayload);
     return formatAmount(converted);
-  }, [activeCard, fromCurrency, fromValidValue, rateDKKToEUR, toCurrency, toValidValue]);
+  }, [activeCard, fromCurrency, fromValidValue, ratesPayload, toCurrency, toValidValue]);
 
   const rateText = useMemo(() => {
+    if (!ratesPayload || !fromCurrency || !toCurrency) {
+      return 'Rates unavailable';
+    }
+
     if (fromCurrency === toCurrency) {
       return `1 ${fromCurrency} = 1 ${toCurrency}`;
     }
 
-    if (fromCurrency === 'DKK' && toCurrency === 'EUR') {
-      return `1 DKK = ${rateDKKToEUR.toFixed(4)} EUR`;
+    const pairRate = getPairRate(fromCurrency, toCurrency, ratesPayload);
+    if (pairRate === null) {
+      return 'Rates unavailable';
     }
 
-    if (fromCurrency === 'EUR' && toCurrency === 'DKK') {
-      return `1 EUR = ${(1 / rateDKKToEUR).toFixed(4)} DKK`;
-    }
-
-    return `1 ${fromCurrency} = ${rateDKKToEUR.toFixed(4)} ${toCurrency}`;
-  }, [fromCurrency, rateDKKToEUR, toCurrency]);
+    return `1 ${fromCurrency} = ${pairRate.toFixed(4)} ${toCurrency}`;
+  }, [fromCurrency, ratesPayload, toCurrency]);
 
   const openPicker = (target: Exclude<PickerTarget, null>) => {
+    if (supportedCurrencies.length === 0) {
+      return;
+    }
+
+    const currentCode = target === 'from' ? fromCurrency : toCurrency;
+    const nextPendingSelection = getFallbackSelection(supportedCurrencies, currentCode);
+
     setPickerTarget(target);
-    setPendingSelection(target === 'from' ? fromCurrency : toCurrency);
+    setPendingSelection(nextPendingSelection);
     setPickerVisible(true);
   };
 
   const confirmPicker = () => {
+    if (!supportedCurrencies.some((currency) => currency.code === pendingSelection)) {
+      setPickerVisible(false);
+      setPickerTarget(null);
+      return;
+    }
+
     if (pickerTarget === 'from') {
       setFromCurrency(pendingSelection);
     }
@@ -345,7 +459,7 @@ export const ConvertScreen = () => {
 
       <CurrencyPickerModal
         visible={pickerVisible}
-        currencies={CURRENCIES}
+        currencies={supportedCurrencies}
         selectedCode={pendingSelection}
         onSelect={setPendingSelection}
         onConfirm={confirmPicker}

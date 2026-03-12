@@ -85,7 +85,7 @@ const styles = StyleSheet.create({
   },
   label: {
     color: theme.colors.textSecondary,
-    fontSize: theme.text.small,
+    fontSize: theme.typography.caption.fontSize,
     marginBottom: theme.spacing.xs,
     textTransform: 'uppercase',
     letterSpacing: 1,

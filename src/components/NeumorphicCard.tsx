@@ -20,7 +20,7 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: theme.radius.lg,
     backgroundColor: theme.colors.surface,
-    ...theme.shadows.outer,
+    ...theme.shadows.softOuter,
   },
   inner: {
     borderRadius: theme.radius.lg,

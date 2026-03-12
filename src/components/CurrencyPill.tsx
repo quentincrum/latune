@@ -35,7 +35,7 @@ const styles = StyleSheet.create({
   },
   code: {
     color: theme.colors.textPrimary,
-    fontSize: theme.text.body,
+    fontSize: theme.typography.body.fontSize,
     fontWeight: '700',
   },
   chevron: {

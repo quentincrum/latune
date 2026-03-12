@@ -41,7 +41,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: theme.colors.border,
-    ...theme.shadows.outer,
+    ...theme.shadows.softOuter,
   },
   primary: {
     backgroundColor: theme.colors.accent,
