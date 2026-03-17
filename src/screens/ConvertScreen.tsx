@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmountRow } from '../components/AmountRow';
@@ -58,8 +59,13 @@ const CURRENCY_METADATA: Record<string, Currency> = {
 
 type PickerTarget = 'from' | 'to' | null;
 type ActiveCard = 'from' | 'to';
+type StoredCurrencySelection = {
+  fromCurrency: string;
+  toCurrency: string;
+};
 
 const MINUS = '−';
+const SELECTED_CURRENCIES_STORAGE_KEY = 'selected-currencies';
 
 const formatForDisplay = (value: number) => formatExpressionValue(value).replace('-', MINUS);
 
@@ -148,6 +154,15 @@ const getSecondarySelection = (currencies: Currency[], primaryCode: string) => {
   return alternate ? alternate.code : primaryCode;
 };
 
+const isStoredCurrencySelection = (value: unknown): value is StoredCurrencySelection => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.fromCurrency === 'string' && typeof candidate.toCurrency === 'string';
+};
+
 export const ConvertScreen = () => {
   const [ratesPayload, setRatesPayload] = useState<ExchangeRatesPayload | null>(null);
   const [fromCurrency, setFromCurrency] = useState('');
@@ -163,6 +178,7 @@ export const ConvertScreen = () => {
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<PickerTarget>(null);
   const [pendingSelection, setPendingSelection] = useState('');
+  const [storedSelection, setStoredSelection] = useState<StoredCurrencySelection | null>(null);
   const insets = useSafeAreaInsets();
 
   const supportedCurrencies = useMemo(() => {
@@ -174,6 +190,34 @@ export const ConvertScreen = () => {
       .map((code) => CURRENCY_METADATA[code])
       .filter((currency): currency is Currency => Boolean(currency));
   }, [ratesPayload]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadStoredSelection = async () => {
+      try {
+        const savedSelection = await AsyncStorage.getItem(SELECTED_CURRENCIES_STORAGE_KEY);
+        if (!mounted || !savedSelection) {
+          return;
+        }
+
+        const parsed = JSON.parse(savedSelection) as unknown;
+        if (isStoredCurrencySelection(parsed)) {
+          setStoredSelection(parsed);
+        }
+      } catch {
+        if (!mounted) {
+          return;
+        }
+      }
+    };
+
+    loadStoredSelection();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -215,12 +259,14 @@ export const ConvertScreen = () => {
       return;
     }
 
+    const preferredFrom = storedSelection?.fromCurrency || fromCurrency || (ratesPayload ? ratesPayload.base : undefined);
     const nextFrom = getFallbackSelection(
       supportedCurrencies,
-      fromCurrency || (ratesPayload ? ratesPayload.base : undefined),
+      preferredFrom,
     );
-    const nextTo = toCurrency && supportedCurrencies.some((currency) => currency.code === toCurrency)
-      ? toCurrency
+    const preferredTo = storedSelection?.toCurrency || toCurrency;
+    const nextTo = preferredTo && supportedCurrencies.some((currency) => currency.code === preferredTo)
+      ? preferredTo
       : getSecondarySelection(supportedCurrencies, nextFrom);
 
     if (fromCurrency !== nextFrom) {
@@ -234,7 +280,11 @@ export const ConvertScreen = () => {
     if (!pendingSelection || !supportedCurrencies.some((currency) => currency.code === pendingSelection)) {
       setPendingSelection(nextFrom);
     }
-  }, [fromCurrency, pendingSelection, ratesPayload, supportedCurrencies, toCurrency]);
+
+    if (storedSelection) {
+      setStoredSelection(null);
+    }
+  }, [fromCurrency, pendingSelection, ratesPayload, storedSelection, supportedCurrencies, toCurrency]);
 
   const softSyncValue = (target: ActiveCard, expression: string) => {
     if (isInProgressExpression(expression)) {
@@ -416,6 +466,15 @@ export const ConvertScreen = () => {
     if (pickerTarget === 'to') {
       setToCurrency(pendingSelection);
     }
+
+    const nextSelection: StoredCurrencySelection = {
+      fromCurrency: pickerTarget === 'from' ? pendingSelection : fromCurrency,
+      toCurrency: pickerTarget === 'to' ? pendingSelection : toCurrency,
+    };
+
+    void AsyncStorage.setItem(SELECTED_CURRENCIES_STORAGE_KEY, JSON.stringify(nextSelection)).catch(() => {
+      return;
+    });
 
     setPickerVisible(false);
     setPickerTarget(null);
