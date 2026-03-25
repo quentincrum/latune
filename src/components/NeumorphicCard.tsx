@@ -23,10 +23,12 @@ const styles = StyleSheet.create({
     ...theme.shadows.softOuter,
   },
   inner: {
+    flex: 1,
     borderRadius: theme.radius.lg,
     padding: theme.spacing.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
+    justifyContent: 'center',
   },
   active: {
     borderWidth: 1,

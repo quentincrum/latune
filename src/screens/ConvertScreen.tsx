@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AmountRow } from '../components/AmountRow';
 import { Keypad } from '../components/Keypad';
@@ -66,6 +67,9 @@ type StoredCurrencySelection = {
 
 const MINUS = '−';
 const SELECTED_CURRENCIES_STORAGE_KEY = 'selected-currencies';
+const CACHED_RATES_STORAGE_KEY = 'cached-rates';
+const RATES_FETCHED_AT_KEY = 'rates-fetched-at';
+const RATES_TTL_MS = 3 * 30 * 24 * 60 * 60 * 1000;
 
 const formatForDisplay = (value: number) => formatExpressionValue(value).replace('-', MINUS);
 
@@ -154,6 +158,21 @@ const getSecondarySelection = (currencies: Currency[], primaryCode: string) => {
   return alternate ? alternate.code : primaryCode;
 };
 
+const isValidRatesPayload = (value: unknown): value is ExchangeRatesPayload => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.base === 'string' &&
+    typeof v.updatedAt === 'string' &&
+    typeof v.rates === 'object' &&
+    v.rates !== null &&
+    !Array.isArray(v.rates)
+  );
+};
+
 const isStoredCurrencySelection = (value: unknown): value is StoredCurrencySelection => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return false;
@@ -175,6 +194,7 @@ export const ConvertScreen = () => {
   const [calcError, setCalcError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState(nowTimestamp());
   const [rateError, setRateError] = useState<string | null>(null);
+  const [isStaleRates, setIsStaleRates] = useState(false);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<PickerTarget>(null);
   const [pendingSelection, setPendingSelection] = useState('');
@@ -223,6 +243,34 @@ export const ConvertScreen = () => {
     let mounted = true;
 
     const loadRates = async () => {
+      // Read cache and fetch timestamp in parallel
+      const [cachedRaw, fetchedAtRaw] = await Promise.all([
+        AsyncStorage.getItem(CACHED_RATES_STORAGE_KEY).catch(() => null),
+        AsyncStorage.getItem(RATES_FETCHED_AT_KEY).catch(() => null),
+      ]);
+
+      const cachedPayload = (() => {
+        try {
+          const parsed = JSON.parse(cachedRaw ?? '') as unknown;
+          return isValidRatesPayload(parsed) ? parsed : null;
+        } catch {
+          return null;
+        }
+      })();
+
+      const fetchedAt = Number(fetchedAtRaw ?? 0);
+      const cacheIsFresh = cachedPayload !== null && Date.now() - fetchedAt < RATES_TTL_MS;
+
+      // Use cache immediately if it's fresh — skip network entirely
+      if (cacheIsFresh && mounted) {
+        setRatesPayload(cachedPayload);
+        setLastUpdated(new Date(cachedPayload.updatedAt).toLocaleString());
+        setRateError(null);
+        setIsStaleRates(false);
+        return;
+      }
+
+      // Cache is missing or stale — try to fetch fresh rates
       try {
         const result = await fetchLatestRates();
         if (!mounted) {
@@ -232,13 +280,27 @@ export const ConvertScreen = () => {
         setRatesPayload(result);
         setLastUpdated(new Date(result.updatedAt).toLocaleString());
         setRateError(null);
+        setIsStaleRates(false);
+        void Promise.all([
+          AsyncStorage.setItem(CACHED_RATES_STORAGE_KEY, JSON.stringify(result)),
+          AsyncStorage.setItem(RATES_FETCHED_AT_KEY, String(Date.now())),
+        ]).catch(() => {});
       } catch {
         if (!mounted) {
           return;
         }
 
+        // Fetch failed — fall back to stale cache if available
+        if (cachedPayload) {
+          setRatesPayload(cachedPayload);
+          setLastUpdated(new Date(cachedPayload.updatedAt).toLocaleString());
+          setIsStaleRates(true);
+          setRateError('Using cached rates — update failed');
+          return;
+        }
+
         setRatesPayload(null);
-        setRateError('Unable to load live exchange rates');
+        setRateError('Unable to load exchange rates');
         setPickerVisible(false);
         setPickerTarget(null);
       }
@@ -481,34 +543,47 @@ export const ConvertScreen = () => {
   };
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
+    <SafeAreaView style={styles.screen} edges={['top']}>
+      <View pointerEvents="none" style={styles.flareWrap}>
+        <View style={styles.flare1} />
+        <View style={styles.flare2} />
+        <View style={styles.flare3} />
+        <View style={styles.flare4} />
+        <View style={styles.flare5} />
+      </View>
       <View style={[styles.content, { paddingBottom: theme.spacing.md + insets.bottom }]}>
-        <AmountRow
-          label="From"
-          currencyCode={fromCurrency}
-          amount={fromAmount}
-          expression={activeCard === 'from' ? fromExpression : undefined}
-          calcError={activeCard === 'from' ? calcError : null}
-          onCurrencyPress={() => openPicker('from')}
-          onPress={() => setActiveCard('from')}
-          active={activeCard === 'from'}
-        />
-
-        <AmountRow
-          label="To"
-          currencyCode={toCurrency}
-          amount={toAmount}
-          expression={activeCard === 'to' ? toExpression : undefined}
-          calcError={activeCard === 'to' ? calcError : null}
-          onCurrencyPress={() => openPicker('to')}
-          onPress={() => setActiveCard('to')}
-          active={activeCard === 'to'}
-        />
-
         <View style={styles.rateWrap}>
           <Text style={styles.rateText}>{rateText}</Text>
           <Text style={styles.subtleText}>Updated: {lastUpdated}</Text>
-          {rateError ? <Text style={styles.errorText}>{rateError}</Text> : null}
+          {rateError ? (
+            <Text style={isStaleRates ? styles.staleText : styles.errorText}>{rateError}</Text>
+          ) : null}
+        </View>
+
+        <View style={styles.currencySection}>
+          <AmountRow
+            label="From"
+            currencyCode={fromCurrency}
+            amount={fromAmount}
+            expression={activeCard === 'from' ? fromExpression : undefined}
+            calcError={activeCard === 'from' ? calcError : null}
+            onCurrencyPress={() => openPicker('from')}
+            onPress={() => setActiveCard('from')}
+            active={activeCard === 'from'}
+            style={{ flex: 1 }}
+          />
+
+          <AmountRow
+            label="To"
+            currencyCode={toCurrency}
+            amount={toAmount}
+            expression={activeCard === 'to' ? toExpression : undefined}
+            calcError={activeCard === 'to' ? calcError : null}
+            onCurrencyPress={() => openPicker('to')}
+            onPress={() => setActiveCard('to')}
+            active={activeCard === 'to'}
+            style={{ flex: 1 }}
+          />
         </View>
 
         <View style={styles.keypadWrap}>
@@ -524,7 +599,7 @@ export const ConvertScreen = () => {
         onConfirm={confirmPicker}
         onClose={() => setPickerVisible(false)}
       />
-    </View>
+    </SafeAreaView>
   );
 };
 
@@ -538,7 +613,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   rateWrap: {
-    marginTop: theme.spacing.xs,
+    marginLeft: theme.spacing.xs,
     marginBottom: theme.spacing.xs,
     gap: 4,
   },
@@ -554,6 +629,68 @@ const styles = StyleSheet.create({
   errorText: {
     color: theme.colors.accent,
     fontSize: 12,
+  },
+  staleText: {
+    color: '#C8963E',
+    fontSize: 12,
+  },
+  flareWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+  },
+  flare1: {
+    position: 'absolute',
+    top: -450,
+    left: -450,
+    width: 900,
+    height: 900,
+    borderRadius: 450,
+    backgroundColor: 'rgba(255, 138, 31, 0.03)',
+    filter: [{ blur: 80 }],
+  },
+  flare2: {
+    position: 'absolute',
+    top: -340,
+    left: -340,
+    width: 680,
+    height: 680,
+    borderRadius: 340,
+    backgroundColor: 'rgba(255, 138, 31, 0.05)',
+    filter: [{ blur: 60 }],
+  },
+  flare3: {
+    position: 'absolute',
+    top: -240,
+    left: -240,
+    width: 480,
+    height: 480,
+    borderRadius: 240,
+    backgroundColor: 'rgba(255, 138, 31, 0.07)',
+    filter: [{ blur: 50 }],
+  },
+  flare4: {
+    position: 'absolute',
+    top: -150,
+    left: -150,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: 'rgba(255, 138, 31, 0.09)',
+    filter: [{ blur: 40 }],
+  },
+  flare5: {
+    position: 'absolute',
+    top: -80,
+    left: -80,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: 'rgba(255, 138, 31, 0.11)',
+    filter: [{ blur: 30 }],
+  },
+  currencySection: {
+    flex: 1,
   },
   keypadWrap: {
     marginTop: theme.spacing.sm,

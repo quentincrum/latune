@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { CurrencyPill } from './CurrencyPill';
 import { NeumorphicCard } from './NeumorphicCard';
 import { theme } from '../theme/theme';
@@ -12,6 +12,7 @@ type AmountRowProps = {
   active?: boolean;
   onCurrencyPress: () => void;
   onPress?: () => void;
+  style?: StyleProp<ViewStyle>;
 };
 
 export const AmountRow = ({
@@ -23,6 +24,7 @@ export const AmountRow = ({
   active,
   onCurrencyPress,
   onPress,
+  style,
 }: AmountRowProps) => {
   const showCalculatorLayout = Boolean(expression);
 
@@ -69,7 +71,7 @@ export const AmountRow = ({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`Focus ${label.toLowerCase()} amount`}
-      style={styles.pressable}
+      style={[styles.pressable, style]}
     >
       {content}
     </Pressable>
@@ -81,6 +83,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   card: {
+    flex: 1,
     marginBottom: theme.spacing.md,
   },
   label: {
