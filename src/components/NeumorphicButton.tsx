@@ -1,5 +1,5 @@
-import { ReactNode } from 'react';
-import { Pressable, StyleProp, StyleSheet, Text, ViewStyle } from 'react-native';
+import { useRef } from 'react';
+import { Animated, Pressable, StyleProp, StyleSheet, Text, ViewStyle } from 'react-native';
 import { theme } from '../theme/theme';
 
 type NeumorphicButtonProps = {
@@ -8,7 +8,7 @@ type NeumorphicButtonProps = {
   style?: StyleProp<ViewStyle>;
   primary?: boolean;
   accessibilityLabel: string;
-  children?: ReactNode;
+  children?: React.ReactNode;
 };
 
 export const NeumorphicButton = ({
@@ -19,15 +19,50 @@ export const NeumorphicButton = ({
   accessibilityLabel,
   children,
 }: NeumorphicButtonProps) => {
+  const pressAnim = useRef(new Animated.Value(0)).current;
+
+  const handlePressIn = () => {
+    Animated.spring(pressAnim, {
+      toValue: 1,
+      speed: 50,
+      bounciness: 2,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(pressAnim, {
+      toValue: 0,
+      speed: 30,
+      bounciness: 0,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const scale = pressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.97],
+  });
+
+  const overlayOpacity = pressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 0.12],
+  });
+
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       onPress={onPress}
-      style={({ pressed }) => [styles.button, primary && styles.primary, pressed && styles.pressed, style]}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      style={style}
     >
-      {children}
-      {label ? <Text style={[styles.label, primary && styles.labelPrimary]}>{label}</Text> : null}
+      <Animated.View style={[styles.button, primary && styles.primary, style, { transform: [{ scale }] }]}>
+        <Animated.View style={[StyleSheet.absoluteFillObject, styles.pressOverlay, { opacity: overlayOpacity }]} />
+        {children}
+        {label ? <Text style={[styles.label, primary && styles.labelPrimary]}>{label}</Text> : null}
+      </Animated.View>
     </Pressable>
   );
 };
@@ -47,9 +82,9 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.accent,
     borderColor: theme.colors.accent,
   },
-  pressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
+  pressOverlay: {
+    borderRadius: theme.radius.md,
+    backgroundColor: '#FFFFFF',
   },
   label: {
     color: theme.colors.textPrimary,

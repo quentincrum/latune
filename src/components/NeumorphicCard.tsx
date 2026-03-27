@@ -33,5 +33,6 @@ const styles = StyleSheet.create({
   active: {
     borderWidth: 1,
     borderColor: theme.colors.accent,
+    boxShadow: [{ offsetX: 0, offsetY: 16, blurRadius: 32, spreadDistance: 1, color: 'rgba(255, 138, 31, 0.24)' }],
   },
 });

@@ -544,13 +544,6 @@ export const ConvertScreen = () => {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View pointerEvents="none" style={styles.flareWrap}>
-        <View style={styles.flare1} />
-        <View style={styles.flare2} />
-        <View style={styles.flare3} />
-        <View style={styles.flare4} />
-        <View style={styles.flare5} />
-      </View>
       <View style={[styles.content, { paddingBottom: theme.spacing.md + insets.bottom }]}>
         <View style={styles.rateWrap}>
           <Text style={styles.rateText}>{rateText}</Text>
@@ -606,11 +599,13 @@ export const ConvertScreen = () => {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    overflow: 'hidden',
     paddingHorizontal: theme.spacing.md,
     backgroundColor: theme.colors.background,
   },
   content: {
     flex: 1,
+    paddingTop: 4,
   },
   rateWrap: {
     marginLeft: theme.spacing.xs,
@@ -633,61 +628,6 @@ const styles = StyleSheet.create({
   staleText: {
     color: '#C8963E',
     fontSize: 12,
-  },
-  flareWrap: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-  },
-  flare1: {
-    position: 'absolute',
-    top: -450,
-    left: -450,
-    width: 900,
-    height: 900,
-    borderRadius: 450,
-    backgroundColor: 'rgba(255, 138, 31, 0.03)',
-    filter: [{ blur: 80 }],
-  },
-  flare2: {
-    position: 'absolute',
-    top: -340,
-    left: -340,
-    width: 680,
-    height: 680,
-    borderRadius: 340,
-    backgroundColor: 'rgba(255, 138, 31, 0.05)',
-    filter: [{ blur: 60 }],
-  },
-  flare3: {
-    position: 'absolute',
-    top: -240,
-    left: -240,
-    width: 480,
-    height: 480,
-    borderRadius: 240,
-    backgroundColor: 'rgba(255, 138, 31, 0.07)',
-    filter: [{ blur: 50 }],
-  },
-  flare4: {
-    position: 'absolute',
-    top: -150,
-    left: -150,
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: 'rgba(255, 138, 31, 0.09)',
-    filter: [{ blur: 40 }],
-  },
-  flare5: {
-    position: 'absolute',
-    top: -80,
-    left: -80,
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: 'rgba(255, 138, 31, 0.11)',
-    filter: [{ blur: 30 }],
   },
   currencySection: {
     flex: 1,
